@@ -1,21 +1,23 @@
-[tool.poetry]
+[project]
 name = "openrelik-worker-eztools"
 version = "0.1.0"
-description = "Worker for multiple Eric Zimmerman tools"
-authors = ["Alexander Jäger <mail@alexanderjaeger.de>"]
+description = "Worker for multiple Eric Zimmermann tools"
 readme = "README.md"
-package-mode = false
+requires-python = "<4.0,>=3.11"
+authors = [
+    {name = "Alexander Jäger", email = "mail@alexanderjaeger.de"},
+]
+dependencies = [
+    "celery[redis]<6.0.0,>=5.4.0",
+    "openrelik-worker-common<1.0.0,>=0.16.0",
+]
 
-[tool.poetry.dependencies]
-python = "^3.10"
-celery = { extras = ["redis"], version = "^5.4.0" }
-openrelik-worker-common = "^0.12.0"
+[dependency-groups]
+test = [
+    "pytest",
+    "pytest-cov<6.0.0,>=5.0.0",
+    "pytest-mock<4.0.0,>=3.14.0",
+]
 
-[tool.poetry.group.test.dependencies]
-pytest = "*"
-pytest-cov = "^5.0.0"
-pytest-mock = "^3.14.0"
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+[tool.uv]
+default-groups = []

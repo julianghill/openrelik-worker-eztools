@@ -1,4 +1,30 @@
 # ------------------------------------------------------
+#   MFTECMD-BUILDER-STAGE
+# ------------------------------------------------------
+FROM ubuntu:24.04 AS mftecmd-builder
+
+# Prevent needing to configure debian packages, stopping the setup of
+# the docker container.
+RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
+
+# Install .NET SDK and Git
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends software-properties-common && \
+    add-apt-repository ppa:dotnet/backports && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        dotnet-sdk-9.0 \
+        git
+
+# Configure repository to clone from
+ARG MFTECmd_GIT_REPO_URL=https://github.com/EricZimmerman/MFTECmd.git
+ARG MFTECmd_GIT_BRANCH=master
+
+# Clone and build MFTECmd
+RUN git clone --branch ${MFTECmd_GIT_BRANCH} --depth 1 ${MFTECmd_GIT_REPO_URL} /tmp/MFTECmd_source_build
+WORKDIR /tmp/MFTECmd_source_build
+RUN dotnet publish ./MFTECmd/MFTECmd.csproj --framework net9.0 -c Release --no-self-contained -o /opt/MFTECmd_built_from_source
+# ------------------------------------------------------
 #   LECMD-BUILDER-STAGE
 # ------------------------------------------------------
 FROM ubuntu:24.04 AS lecmd-builder
@@ -98,21 +124,16 @@ FROM ubuntu:24.04 AS openrelik-worker
 # the docker container.
 RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
 
-# Install runtime, Python Poetry, and clean up apt cache
+# Install runtime dependencies, uv requirements, and clean up apt cache
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends software-properties-common && \
+    apt-get install -y --no-install-recommends \
+        curl \
+        software-properties-common && \
     add-apt-repository ppa:dotnet/backports && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
-        python3-poetry \
         dotnet-runtime-9.0 \
         && rm -rf /var/lib/apt/lists/*
-
-# Configure poetry
-ENV POETRY_NO_INTERACTION=1 \
-    POETRY_VIRTUALENVS_IN_PROJECT=1 \
-    POETRY_VIRTUALENVS_CREATE=1 \
-    POETRY_CACHE_DIR=/tmp/poetry_cache
 
 # Configure debugging
 ARG OPENRELIK_PYDEBUG
@@ -123,21 +144,27 @@ ENV OPENRELIK_PYDEBUG_PORT=${OPENRELIK_PYDEBUG_PORT:-5678}
 # Set working directory
 WORKDIR /openrelik
 
-# Copy poetry toml and install dependencies
-COPY ./pyproject.toml ./poetry.lock ./
-RUN poetry install --no-interaction --no-ansi
+# Install the latest uv binaries
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-# Copy files needed to build
+# Copy lockfile/pyproject and install dependencies
+COPY uv.lock pyproject.toml ./
+RUN uv sync --locked --no-install-project --no-dev
+
+# Copy project files
 COPY . ./
 
+# Installing separately from its dependencies allows optimal layer caching
+RUN uv sync --locked --no-dev
+
 # Install the worker and set environment to use the correct python interpreter.
-RUN poetry install && rm -rf $POETRY_CACHE_DIR
-ENV VIRTUAL_ENV=/app/.venv PATH="/openrelik/.venv/bin:$PATH"
+ENV PATH="/openrelik/.venv/bin:$PATH"
 
 # Copy compiled binaries from build stages
 COPY --from=lecmd-builder /opt/LECmd_built_from_source /opt/LECmd_built_from_source
 COPY --from=rbcmd-builder /opt/RBCmd_built_from_source /opt/RBCmd_built_from_source
 COPY --from=aca-builder /opt/AppCompatCacheParser_built_from_source /opt/AppCompatCacheParser_built_from_source
+COPY --from=mftecmd-builder /opt/MFTECmd_built_from_source /opt/MFTECmd_built_from_source
 
 # Default command if not run from docker-compose (and command being overidden)
 CMD ["celery", "--app=src.tasks", "worker", "--task-events", "--concurrency=1", "--loglevel=INFO"]

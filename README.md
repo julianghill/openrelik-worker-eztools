@@ -55,9 +55,16 @@ Download Eric Zimmerman's Tools
 All of Eric Zimmerman's tools can be downloaded here: https://ericzimmerman.github.io/#!index.md.
 
 
-## Test
+## Local development
+
 ```
-pip install poetry
-poetry install --with test --no-root
-poetry run pytest --cov=. -v
+uv sync --group test
+uv run pytest --cov=. -v
+```
+
+To run the worker locally with Redis available:
+
+```
+REDIS_URL=redis://localhost:6379/0 \
+uv run celery --app=src.app worker --task-events --concurrency=1 --loglevel=INFO
 ```
